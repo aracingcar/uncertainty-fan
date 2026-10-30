@@ -51,3 +51,16 @@ def test_timescale_selects_distinct_products(client):
     cas=lambda ts:client.get('/cascade',params={**base,'horizon':2050,'timescale':ts}).json()['data']
     assert len(cas('decadal'))==len(cas('annual'))==6
     assert client.get('/quantiles',params={**base,'timescale':'weekly'}).status_code==422
+
+
+def test_absolute_metric_is_separate_product(client):
+    ids=[m['id'] for m in client.get('/metrics').json()['data']]
+    assert ids==['annual_runoff','annual_runoff_abs']
+    q=lambda m:client.get('/quantiles',params=dict(node='demo-catchment',metric=m,ssp='all')).json()['data']
+    pct,absolute=q('annual_runoff'),q('annual_runoff_abs')
+    assert len(pct)==len(absolute)==102
+    assert abs(pct[50]['p50'])<60 and absolute[50]['p50']>60  # % change vs index around 100
+    cube=client.get('/cube',params=dict(node='demo-catchment',metric='annual_runoff_abs',format='json')).json()['data']
+    assert 50<cube['values'][0][0]<200
+    assert client.get('/exceedance',params=dict(node='demo-catchment',metric='annual_runoff_abs')).json()['data']==[]
+    assert client.get('/variance',params=dict(node='demo-catchment',metric='nope')).status_code==404

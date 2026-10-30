@@ -33,8 +33,10 @@ def create_app(data_dir=None):
         response.headers["Cache-Control"] = "no-cache"
         return response
 
+    specs = {m["id"]: m for m in metadata["metrics"]}
+
     def check(node, metric):
-        if node != metadata["node"] or metric != metadata["metric"]:
+        if node != metadata["node"] or metric not in specs:
             raise HTTPException(404, "Unknown node or metric")
 
     def known(timescale):
@@ -66,7 +68,7 @@ def create_app(data_dir=None):
 
     @app.get("/metrics")
     def metrics():
-        return envelope([dict(id=metadata["metric"],name="Annual runoff",units="% change",threshold_id="runoff-minus20")])
+        return envelope(metadata["metrics"])
 
     @app.get("/chains")
     def chains():
@@ -75,24 +77,24 @@ def create_app(data_dir=None):
     @app.get("/variance")
     def variance(node: str, metric: str, ssp: str="all", timescale: str="decadal"):
         check(node,metric)
-        return envelope(rows("variance",dict(ssp=ssp,timescale=known(timescale))))
+        return envelope(rows("variance",dict(metric=metric,ssp=ssp,timescale=known(timescale))))
 
     @app.get("/cascade")
     def cascade(node: str, metric: str, horizon: int=2050, ssp: str="all", timescale: str="decadal"):
         check(node,metric)
-        return envelope(rows("cascade",dict(horizon=horizon,ssp=ssp,timescale=known(timescale))))
+        return envelope(rows("cascade",dict(metric=metric,horizon=horizon,ssp=ssp,timescale=known(timescale))))
 
     @app.get("/quantiles")
     def quantiles(node: str, metric: str, ssp: str="all", slice: str="all", timescale: str="decadal"):
         check(node,metric)
-        return envelope(rows("quantiles",dict(ssp=ssp,slice=slice,timescale=known(timescale))))
+        return envelope(rows("quantiles",dict(metric=metric,ssp=ssp,slice=slice,timescale=known(timescale))))
 
     @app.get("/exceedance")
     def exceedance(node: str, metric: str, threshold_id: str="runoff-minus20", rule: str="annual"):
         check(node,metric)
         rule=RULE_ALIASES.get(rule,rule)
         if rule not in RULES: raise HTTPException(422,f"rule must be one of {RULES}")
-        return envelope(rows("exceedance",dict(threshold_id=threshold_id,rule=rule)))
+        return envelope(rows("exceedance",dict(metric=metric,threshold_id=threshold_id,rule=rule)))
 
     @app.get("/futures")
     def futures(horizon: int=2050, ssp: str="SSP2-4.5"):
@@ -102,11 +104,12 @@ def create_app(data_dir=None):
     def chunk(node: str, metric: str, format: str=Query("arrow",pattern="^(arrow|json)$")):
         check(node,metric)
         # Same product chunk and chain order for JSON prototype and Arrow clients.
-        matrix = cube.delta.values.reshape(-1, len(cube.year))
+        variable = specs[metric]["var"]
+        matrix = cube[variable].values.reshape(-1, len(cube.year))
         if format == "json":
             return envelope(dict(years=cube.year.values.tolist(),values=np.round(matrix,5).tolist()))
         batch = pa.table({"chain_id":[r["chain_id"] for r in rows("chains")],
-                          "delta":pa.array(matrix.tolist(), type=pa.list_(pa.float32()))})
+                          variable:pa.array(matrix.tolist(), type=pa.list_(pa.float32()))})
         batch = batch.replace_schema_metadata({b"build_id":build_id.encode(), b"years":json.dumps(cube.year.values.tolist()).encode()})
         sink=io.BytesIO()
         with ipc.new_stream(sink,batch.schema) as writer:

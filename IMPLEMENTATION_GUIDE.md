@@ -213,7 +213,7 @@ Check argument names against the installed version; they have changed between re
 ### Caveats to carry into the dashboard
 
 - Variance from a factor with few levels is noisy: with 3 SSPs or 2 bias-correction methods, show the share with a bootstrap or posterior interval, not as an exact figure.
-- The GCM ensemble is an ensemble of opportunity, not a random sample; its spread is a lower bound on model uncertainty.
+- The GCM ensemble is an ensemble of opportunity, not a random sample; its spread does not capture all sources of uncertainty.
 - SSP variance describes scenario choice, not a probability. Label it "scenario spread".
 
 ## Dashboard views
@@ -255,7 +255,7 @@ The stage order changes the increments but not the shares in the `variance` tabl
 
 - **Upper panel:** `delta` vs year, 2020–2100. Centre line = ensemble-mean response for the selected SSP(s). Nested bands from the inside out: IV, hydro, BC, DS, GCM, SSP; each band's half-width = 1.645 × √(cumulative variance), i.e. a 90% range.
 - **Lower panel:** stacked fractional-variance area chart (0–100%) on the same x-axis, one colour per source, same colours as the bands.
-- **Toggle:** "Partitioned bands" (from `variance`) vs "Empirical P10–P90" (from `quantiles`). The empirical fan is the honest envelope; the partitioned one explains it. Show both lines when they disagree by more than 10%.
+- **Toggle:** "Normal-approximation bands" (from `variance`) vs "Empirical P10–P90" (from `quantiles`). The empirical fan is the honest envelope; the partitioned one explains it. Show both lines when they disagree by more than 10%.
 - **Horizon markers:** light vertical rules at 2035 and 2055 with labels near, mid, long term. The data, not the labels, should show which source dominates each period.
 
 ### C. Robust-decision threshold marker
@@ -273,7 +273,7 @@ The stage order changes the increments but not the shares in the `variance` tabl
 
 **Question it answers:** what is left if we hold one source fixed?
 
-- **Controls:** one "hold fixed" dropdown per factor (`all` or a single level) plus two presets: *Climate spread only* (hydro = median parameter set) and *Hydrology spread only* (pick one SSP × GCM × DS × BC chain, e.g. SSP2-4.5 / ACCESS-CM2).
+- **Controls:** one "hold fixed" dropdown per factor (`all` or a single level) plus two presets: *Climate spread only* (hydro = median parameter set) and *Hydrological-parameter spread only* (pick one SSP × GCM × DS × BC chain, e.g. SSP2-4.5 / ACCESS-CM2).
 - **Behaviour:** redraws the empirical fan in B and the breach grid in C for the filtered chains; shows the filtered fan over the full fan in grey so the reduction is visible.
 - **Implementation:** the client loads the (node, metric) chunk once as Arrow (1,920 chains × 111 years ≈ 0.85 MB) and computes quantiles and breach shares locally, in under 50 ms. The precomputed `quantiles` slices serve the first paint and exports.
 - **Context panel:** the Climate Futures matrix for the selected horizon, highlighting the cells of the GCMs currently included.
@@ -330,7 +330,7 @@ The build fails if any automated check fails; the guardrails are design rules ev
 
 - Never show a single chain as "the projection". Single chains appear only inside view D and always over the full grey envelope.
 - Label SSPs as scenarios. Do not pool them into one fan without saying so, and never print a probability for an SSP.
-- State n and the GCM list on every view; state "ensemble of opportunity — range is a lower bound".
+- State n and the GCM list on every view; state "ensemble of opportunity — this ensemble does not capture all sources of uncertainty".
 - Show change relative to baseline by default; absolute values only with the baseline drawn.
 - Use one colour per uncertainty source across all views (A, B and the stacked share chart), and a neutral grey for the envelope.
 - Breach shares carry their breach rule in the label ("Persistent: ≥ 3 years below 15 ML/d in the decade").

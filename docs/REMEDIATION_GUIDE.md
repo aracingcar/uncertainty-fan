@@ -115,7 +115,9 @@ Record each answer in `docs/decisions.md` (one line each) so later reviewers can
 - Add caption text under the fan: *"Percentile curves are calculated year by year; the chain forming P90 can change between years. They are not coherent drought trajectories."*
 - Replace "range is a lower bound" with **"This ensemble does not capture all sources of uncertainty."** in the footer ([web/index.html](../web/index.html)), README, and the two matching lines in [IMPLEMENTATION_GUIDE.md](../IMPLEMENTATION_GUIDE.md) (lines 216 and 333).
 - Rename the QA "agreement" check and flag text to "empirical vs normal-approximation width".
-- Acceptance: grep for `lower bound` and `Partitioned 90%` returns nothing in `web/`, `README.md`, `docs/`.
+- **Status: done** (`tests/test_copy.py` guards the wording).
+
+Acceptance: grep for `lower bound` and `Partitioned 90%` returns nothing in `web/`, `README.md`, `docs/`.
 
 ### WI-5 Test the variability estimator and show its sensitivity (finding 5)
 
@@ -134,6 +136,7 @@ Accept when the same share can be seen changing under alternative estimators on 
 - Add the footnote near the cascade: *"Parameter sets within one model structure. Model structure, groundwater and management assumptions are not sampled."*
 - Normalisation note under every percentage-change chart: *"Each chain is expressed relative to its own 1990–2019 mean, so baseline differences between chains are removed."*
 - Absolute values: the cube already stores `value`. Add a second metric `annual_runoff_abs` (units labelled; the synthetic demo uses an index, say so) through `build.py` tables, `/metrics`, and the metric `<select>`. Show the baseline spread (P10–P90 of the 1990–2019 mean across chains) next to it.
+- **Status: done.** Both metrics run through every table, the API and the static bundle (`bundle.cubes`); breach screening applies to the % metric only and says so. Baseline spread is in `metadata.baseline_spread_abs`.
 - Tests: `/metrics` lists both; absolute and relative products have different `metric` keys and units.
 
 ### WI-7 Honest scope on ecological and decision claims (finding 7)
@@ -142,6 +145,7 @@ Accept when the same share can be seen changing under alternative estimators on 
 - Rename "Robust-decision threshold" copy to "Runoff-change screening threshold". Section C heading: *"How often is a runoff-change threshold crossed?"* Add one sentence: *"A −20% annual runoff change is a screening level, not an ecological limit or supply failure point."*
 - Add a "Scope and limitations" panel (inside the provenance `<details>`): annual runoff only; no routing, storage or operating rules; no seasonal or event metrics.
 - Roadmap (do not implement in the demo): `low_flow_q90`, `cease_to_flow_days`, `max_interevent_days`, `floodplain_inundation_events`, `storage_reliability`, `post_drought_recovery`. Each needs a defined asset, performance measure, and routing/operating context (see the metric cube in the original guide). Add them to Phase 0 of the delivery plan as "named assets and their performance measures".
+- **Status: done** (subtitle, section C copy, scope-and-limitations list in the provenance panel).
 - Acceptance: no occurrence of "resilience" or "robust" in user-facing copy unless tied to a defined measure.
 
 ---

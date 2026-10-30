@@ -15,6 +15,9 @@ LEVELS = {"ssp": ["SSP1-2.6", "SSP2-4.5", "SSP3-7.0"],
           "ds": ["RCM-A", "RCM-B"], "bc": ["QME", "QDM"],
           "hydro": [f"P{i:02}" for i in range(1, 6)], "member": ["r1", "r2"]}
 CLOSURE_TOLERANCE = .05
+# Percentage change removes each chain's baseline; absolute values keep baseline differences.
+METRICS = [dict(id="annual_runoff", var="delta", name="Annual runoff · change", units="% change vs own 1990–2019 mean", threshold_id="runoff-minus20"),
+           dict(id="annual_runoff_abs", var="value", name="Annual runoff · absolute", units="mm/yr (synthetic index)", threshold_id=None)]
 YEARS = np.arange(1990, 2101)
 
 
@@ -49,28 +52,29 @@ def build(root):
     pd.DataFrame(chain_rows).to_parquet(target / "chains.parquet", index=False)
     tables = {name: [] for name in ["variance", "quantiles", "cascade", "exceedance", "futures"]}
     agreement = []
-    for scenario in ["all"] + LEVELS["ssp"]:
-        delta = cube.delta if scenario == "all" else cube.delta.sel(ssp=[scenario])
-        for timescale in TIMESCALES:
-            parts = partition(delta, timescale)
-            series, response, _ = at_timescale(delta, timescale)
-            for j, year in enumerate(parts.year.values):
-                tables["variance"].append(dict(ssp=scenario, timescale=timescale, year=int(year), member_count=int(parts.member_count), **{"var_"+f: float(parts[f][j]) for f in COMPONENTS + EXTRA + ["total"]}))
-                q = np.quantile(series.sel(year=year).values, [.05,.1,.25,.5,.75,.9,.95])
-                tables["quantiles"].append(dict(ssp=scenario, timescale=timescale, year=int(year), slice="all", n_chains=int(series.size/len(parts.year)), mean=float(response.sel(year=year).mean()), **dict(zip(["p05","p10","p25","p50","p75","p90","p95"], q))))
-            for horizon in [2030,2050,2070,2090]:
-                tables["cascade"].extend(dict(ssp=scenario,timescale=timescale,horizon=horizon,**r) for r in cascade(delta,horizon,timescale))
-            for decade in range(2030,2100,10):
-                sub = series.sel(year=slice(decade,decade+9))
-                empirical = np.quantile(sub.values,[.05,.95])
-                half = 1.645*np.sqrt(float(parts.total.sel(year=slice(decade,decade+9)).mean()))
-                mismatch = abs(2*half - np.ptp(empirical))/max(float(np.ptp(empirical)),1e-9)
-                agreement.append(dict(ssp=scenario,timescale=timescale,decade=decade,relative_width_difference=float(mismatch),flagged=bool(mismatch>.2)))
-        if scenario != "all":  # breach rules are scored on annual values, whatever the timescale control says
-            for decade in range(2030,2100,10):
-                annual = delta.sel(year=slice(decade,decade+9)).values.reshape(-1,10)
-                for rule in RULES:
-                    tables["exceedance"].append(dict(ssp=scenario,decade=decade,threshold_id="runoff-minus20",threshold=-20,rule=rule,**breaches(annual,-20,rule)))
+    for metric in METRICS:
+        for scenario in ["all"] + LEVELS["ssp"]:
+            delta = cube[metric["var"]] if scenario == "all" else cube[metric["var"]].sel(ssp=[scenario])
+            for timescale in TIMESCALES:
+                parts = partition(delta, timescale)
+                series, response, _ = at_timescale(delta, timescale)
+                for j, year in enumerate(parts.year.values):
+                    tables["variance"].append(dict(metric=metric["id"], ssp=scenario, timescale=timescale, year=int(year), member_count=int(parts.member_count), **{"var_"+f: float(parts[f][j]) for f in COMPONENTS + EXTRA + ["total"]}))
+                    q = np.quantile(series.sel(year=year).values, [.05,.1,.25,.5,.75,.9,.95])
+                    tables["quantiles"].append(dict(metric=metric["id"], ssp=scenario, timescale=timescale, year=int(year), slice="all", n_chains=int(series.size/len(parts.year)), mean=float(response.sel(year=year).mean()), **dict(zip(["p05","p10","p25","p50","p75","p90","p95"], q))))
+                for horizon in [2030,2050,2070,2090]:
+                    tables["cascade"].extend(dict(metric=metric["id"],ssp=scenario,timescale=timescale,horizon=horizon,**r) for r in cascade(delta,horizon,timescale))
+                for decade in range(2030,2100,10):
+                    sub = series.sel(year=slice(decade,decade+9))
+                    empirical = np.quantile(sub.values,[.05,.95])
+                    half = 1.645*np.sqrt(float(parts.total.sel(year=slice(decade,decade+9)).mean()))
+                    mismatch = abs(2*half - np.ptp(empirical))/max(float(np.ptp(empirical)),1e-9)
+                    agreement.append(dict(metric=metric["id"],ssp=scenario,timescale=timescale,decade=decade,relative_width_difference=float(mismatch),flagged=bool(mismatch>.2)))
+            if scenario != "all" and metric["threshold_id"]:  # breach rules are scored on annual values, whatever the timescale control says
+                for decade in range(2030,2100,10):
+                    annual = delta.sel(year=slice(decade,decade+9)).values.reshape(-1,10)
+                    for rule in RULES:
+                        tables["exceedance"].append(dict(metric=metric["id"],ssp=scenario,decade=decade,threshold_id="runoff-minus20",threshold=-20,rule=rule,**breaches(annual,-20,rule)))
     for s, scenario in enumerate(LEVELS["ssp"]):
         for g,gcm in enumerate(LEVELS["gcm"]):
             for horizon in [2030,2050,2070,2090]:
@@ -80,18 +84,18 @@ def build(root):
     for name, rows in tables.items():
         frame=pd.DataFrame(rows)
         frame["node"]="demo-catchment"
-        frame["metric"]="annual_runoff"
+        if "metric" not in frame: frame["metric"]="annual_runoff"
         frame["build_id"]=build_id
         frame.to_parquet(target/f"{name}.parquet",index=False)
     # `total` is the empirical ensemble variance, so closure is a real check: the
     # components must explain it. Single years carry sampling noise, so test the bias.
-    gaps = pd.DataFrame(tables["variance"]).groupby(["ssp", "timescale"]).apply(
+    gaps = pd.DataFrame(tables["variance"]).groupby(["metric", "ssp", "timescale"]).apply(
         lambda g: abs(g["var_unattributed"].mean()) / g["var_total"].mean(), include_groups=False)
     closure = float(gaps.max())
     monotonic = all(all(r[a]<=r[b] for a,b in zip(["p05","p10","p25","p50","p75","p90"],["p10","p25","p50","p75","p90","p95"])) for r in tables["quantiles"])
     if closure>CLOSURE_TOLERANCE or not monotonic:
         raise ValueError(f"Product QA failed: unattributed variance {closure:.1%}, monotonic quantiles {monotonic}")
-    metadata=dict(build_id=build_id,synthetic=True,node="demo-catchment",metric="annual_runoff",baseline="1990–2019 calendar years (demo)",weighting="Equal GCM weights; fully balanced chain design",smoothing="Fourth-order polynomial, centred year",timescales=dict(default="decadal",decadal="Centred 10-year running mean (label year y = mean of y-5..y+4); every stage smoothed alike",annual="Single years"),exceedance_timescale="annual",n_chains=len(chain_rows),levels=LEVELS,qa=dict(unattributed_variance_fraction=closure,closure_tolerance=CLOSURE_TOLERANCE,member_count=len(LEVELS["member"]),monotonic_quantiles=monotonic,agreement=agreement,historical_skill="pending: observed data required",parameter_acceptance="pending: calibrated model required",bootstrap_stability="not implemented; no uncertainty intervals claimed"))
+    metadata=dict(build_id=build_id,synthetic=True,node="demo-catchment",metric="annual_runoff",metrics=METRICS,baseline_spread_abs=dict(zip(["p10","p50","p90"],map(float,np.quantile(cube.value.sel(year=slice(1990,2019)).mean("year").values,[.1,.5,.9])))),baseline="1990–2019 calendar years (demo)",weighting="Equal GCM weights; fully balanced chain design",smoothing="Fourth-order polynomial, centred year",timescales=dict(default="decadal",decadal="Centred 10-year running mean (label year y = mean of y-5..y+4); every stage smoothed alike",annual="Single years"),exceedance_timescale="annual",n_chains=len(chain_rows),levels=LEVELS,qa=dict(unattributed_variance_fraction=closure,closure_tolerance=CLOSURE_TOLERANCE,member_count=len(LEVELS["member"]),monotonic_quantiles=monotonic,agreement=agreement,historical_skill="pending: observed data required",parameter_acceptance="pending: calibrated model required",bootstrap_stability="not implemented; no uncertainty intervals claimed"))
     (target/"metadata.json").write_text(json.dumps(metadata,indent=2))
     target.rename(destination)
     pending = Path(root,".current.tmp")

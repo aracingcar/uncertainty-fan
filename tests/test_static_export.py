@@ -18,13 +18,15 @@ def test_static_site_export(tmp_path):
     assert 'href="/chains"' not in html
     assert (site / 'static-products.js').is_file()
     assert (site / '.nojekyll').exists()
-    assert len(bundle['cube']['values']) == bundle['metadata']['n_chains'] == 360
-    assert len(bundle['cube']['years']) == 111
-    assert len(bundle['tables']['variance']) == 4 * (102 + 111)  # decadal 1995-2096 + annual
-    assert len(bundle['tables']['cascade']) == 4 * 2 * 4 * 6
+    assert len(bundle['cubes']['annual_runoff']['values']) == bundle['metadata']['n_chains'] == 360
+    assert len(bundle['cubes']['annual_runoff']['years']) == 111
+    assert len(bundle['tables']['variance']) == 2 * 4 * (102 + 111)  # two metrics; decadal 1995-2096 + annual
+    assert len(bundle['tables']['cascade']) == 2 * 4 * 2 * 4 * 6
     assert all(row['build_id'] == bundle['metadata']['build_id'] for row in bundle['tables']['variance'])
     assert (site / 'stats.js').exists()
     rules = {row['rule'] for row in bundle['tables']['exceedance']}
+    assert {row['metric'] for row in bundle['tables']['exceedance']} == {'annual_runoff'}  # thresholds are % change only
+    assert {m['id'] for m in bundle['metadata']['metrics']} == {'annual_runoff', 'annual_runoff_abs'}
     assert rules == {'annual', 'dry_years_per_decade', 'consecutive_run', 'decadal_mean'}
     chain_list = json.loads((site / 'data/chains.json').read_text())
     assert chain_list['data'] == bundle['tables']['chains']

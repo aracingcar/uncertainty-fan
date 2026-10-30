@@ -21,9 +21,10 @@ def export_static(data_dir='data', output='_site'):
         for name in ['chains', 'variance', 'quantiles', 'cascade', 'exceedance', 'futures']
     }
     with xr.open_zarr(release / 'metrics.zarr') as cube:
-        matrix = cube.delta.values.reshape(-1, len(cube.year))
-        chunk = dict(years=cube.year.values.tolist(), values=np.round(matrix, 5).tolist())
-    bundle = dict(metadata=metadata, tables=tables, cube=chunk)
+        cubes = {m['id']: dict(years=cube.year.values.tolist(),
+                               values=np.round(cube[m['var']].values.reshape(-1, len(cube.year)), 5).tolist())
+                 for m in metadata['metrics']}
+    bundle = dict(metadata=metadata, tables=tables, cubes=cubes)
     assets = Path(__file__).resolve().parent.parent / 'web'
     output.mkdir(parents=True, exist_ok=True)
     (output / 'data').mkdir(exist_ok=True)
