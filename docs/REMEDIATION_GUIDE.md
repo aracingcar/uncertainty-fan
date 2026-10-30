@@ -181,6 +181,16 @@ Move `quantile`, `fanData`, `longest_run` equivalents, and breach counting out o
 | Horizon marker | Shade the selected horizon decade on the fan and highlight the matching decade column in the breach table; label the shaded band "2050s selected". |
 | Accessibility | Give each SVG `aria-labelledby` pointing to `<title>` and `<desc>` that state what is plotted and the key reading (e.g. median change and range at the selected horizon). Add "View data table" (a visually hidden `<table>`, toggled by a button) and "Download CSV" per panel; the existing export covers only chains. |
 
+**Status: WI-9 and WI-8 done.**
+
+- `web/stats.js` now holds `quantile`, `fanRows` (percentiles plus the mean of the selected chains), `selectChains`, `breachGrid`, `headlineShares`, `horizonRows`, `describeFan`, `toCsv`, `esc` and the run/breach helpers; `app.js` keeps DOM and drawing only. 14 JS tests cover them.
+- Page order is now 1 The range (fan with the slicers beside it and removable chips), 2 Sources of spread, 3 Screening threshold, 4 Climate Futures context. The old A–D labels are retired.
+- Scope badges: fan, breaches and Climate Futures say "Sliced · n = 40 of 120" and respond to slicers; shares and cascade say "Full ensemble · slicers do not apply".
+- The dashed line is the mean of the selected chains when sliced (ensemble-mean response otherwise), and the legend says which. The fan has its own key; the variance-source key sits beside the shares chart.
+- The selected horizon is shaded on the fan, outlined on the shares chart and highlighted in the breach table. The fixed Near/Mid/Long markers are gone.
+- Every chart SVG has a name and a description that states the reading; each has a "View data table" panel with CSV download (fan, shares, cascade, breaches). A one-line reading above the fan states the median and P10–P90 at the selected horizon.
+- Checked in the browser pane at 1440×900 (fan spans 528–753 px, slicers beside it) and at a phone-proportioned viewport (fan first, no page-level horizontal scroll). I did not run an automated Playwright smoke test.
+
 Tests: `web/stats.js` unit tests for the mean-of-selected-chains calculation; a Playwright (or browser-pane) smoke check that, with a GCM slicer set, the scope badges on the cascade and fan differ, and that each `<svg>` has a non-empty accessible name.
 
 ---
