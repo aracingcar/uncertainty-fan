@@ -35,7 +35,7 @@ Before real-data work, settle the guide's Phase 0 decisions: authoritative clima
 
 ## GitHub Pages
 
-The repository includes `.github/workflows/pages.yml`. On pushes to `main`, Actions runs the Python and JavaScript tests, rebuilds the synthetic products, exports `_site/`, and deploys it with GitHub Pages. Pull requests run the build and tests without deploying.
+The repository includes `.github/workflows/pages.yml`. On pushes to `main`, Actions runs the Python and JavaScript tests, rebuilds the synthetic products, and exports `_site/`. For public repositories it also deploys with GitHub Pages. Private repositories run validation without publishing. Pull requests run the build and tests without deploying.
 
 Pages hosts only the static synthetic demonstration. The Python API remains available for local development. Both modes use the same dashboard and product response shapes; the static client reads one exported JSON bundle and slices locally. Assets and catalogue links are relative so project subpaths work.
 
