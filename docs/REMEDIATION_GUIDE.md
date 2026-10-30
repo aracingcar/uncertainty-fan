@@ -216,6 +216,18 @@ Tests: `web/stats.js` unit tests for the mean-of-selected-chains calculation; a 
 
 Steps 1–3 change numbers; 4 and 6 change presentation only and can proceed in parallel with 5 by a second person once step 3 has landed.
 
+## Outcome
+
+All nine work items are implemented (commits `cf3a385` WI-1, `0bd11f0` WI-2, `bdcc580` WI-3, `029381f` WI-4/6/7, `84b4504` WI-5, `843bd4b` WI-9/8), and [IMPLEMENTATION_GUIDE.md](../IMPLEMENTATION_GUIDE.md) and the README describe the running system.
+
+Not done, by design:
+
+- **Cross-cutting:** `schema_version` in `metadata.json` and a bumped API version were not added. Build IDs still change automatically because they hash `build.py` and `analytics.py`.
+- **Per-slice variance (D3):** shares and the cascade are labelled full-ensemble rather than recomputed for slices. Fixing one factor level leaves a balanced sub-design, so this is feasible later.
+- **Browser smoke test:** the scope-badge and accessible-name checks were run by hand in the browser pane, not as an automated Playwright test.
+- **Estimator caveat:** a degree-4 polynomial fit biases decadal internal variability low, so the default 10-year-mean internal share is itself an estimate with a visible range.
+- **Real-data gates:** historical skill, calibration acceptance, QUALYPSO, the ecological and supply metrics listed under WI-7, and Source integration remain future work.
+
 ## Definition of done
 
 - Every number on the page names its timescale, ensemble scope and rule.
