@@ -1,0 +1,63 @@
+name: Test and deploy dashboard
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Install project and test dependencies
+        run: python -m pip install -r requirements.lock -e '.[test]'
+      - name: Test analytics, API and static export
+        run: python -m pytest -q
+      - name: Check client and test static product adapter
+        run: |
+          node --check web/app.js
+          npm test
+      - name: Build synthetic products
+        run: python -m hydrofan.build
+      - name: Export static dashboard
+        run: python -m hydrofan.export_static --output _site
+      - name: Configure Pages
+        if: github.event_name != 'pull_request'
+        uses: actions/configure-pages@v5
+      - name: Upload Pages artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

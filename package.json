@@ -1,0 +1,8 @@
+{
+  "name": "hydroclimate-uncertainty-fan",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/static-products.test.mjs"
+  }
+}
