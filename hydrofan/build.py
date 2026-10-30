@@ -8,12 +8,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import xarray as xr
-from .analytics import FACTORS, COMPONENTS, normalise, partition, cascade, breaches, split_response
+from .analytics import FACTORS, COMPONENTS, EXTRA, normalise, partition, cascade, breaches, split_response
 
 LEVELS = {"ssp": ["SSP1-2.6", "SSP2-4.5", "SSP3-7.0"],
           "gcm": ["ACCESS-CM2", "EC-Earth3", "MPI-ESM1-2-HR"],
           "ds": ["RCM-A", "RCM-B"], "bc": ["QME", "QDM"],
           "hydro": [f"P{i:02}" for i in range(1, 6)], "member": ["r1", "r2"]}
+CLOSURE_TOLERANCE = .05
 YEARS = np.arange(1990, 2101)
 
 
@@ -53,7 +54,7 @@ def build(root):
         parts = partition(delta)
         response, _ = split_response(delta)
         for j, year in enumerate(YEARS):
-            tables["variance"].append(dict(ssp=scenario, year=int(year), **{"var_"+f: float(parts[f][j]) for f in COMPONENTS + ["total"]}))
+            tables["variance"].append(dict(ssp=scenario, year=int(year), member_count=int(parts.member_count), **{"var_"+f: float(parts[f][j]) for f in COMPONENTS + EXTRA + ["total"]}))
             q = np.quantile(delta.sel(year=year).values, [.05,.1,.25,.5,.75,.9,.95])
             tables["quantiles"].append(dict(ssp=scenario, year=int(year), slice="all", n_chains=int(delta.size/len(YEARS)), mean=float(response.sel(year=year).mean()), **dict(zip(["p05","p10","p25","p50","p75","p90","p95"], q))))
         for horizon in [2030,2050,2070,2090]:
@@ -81,11 +82,15 @@ def build(root):
         frame["metric"]="annual_runoff"
         frame["build_id"]=build_id
         frame.to_parquet(target/f"{name}.parquet",index=False)
-    closure = max(abs(r["var_total"]-sum(r["var_"+c] for c in COMPONENTS)) for r in tables["variance"])
+    # `total` is the empirical ensemble variance, so closure is a real check: the
+    # components must explain it. Single years carry sampling noise, so test the bias.
+    gaps = pd.DataFrame(tables["variance"]).groupby("ssp").apply(
+        lambda g: abs(g["var_unattributed"].mean()) / g["var_total"].mean(), include_groups=False)
+    closure = float(gaps.max())
     monotonic = all(all(r[a]<=r[b] for a,b in zip(["p05","p10","p25","p50","p75","p90"],["p10","p25","p50","p75","p90","p95"])) for r in tables["quantiles"])
-    if closure>1e-8 or not monotonic:
-        raise ValueError("Product QA failed")
-    metadata=dict(build_id=build_id,synthetic=True,node="demo-catchment",metric="annual_runoff",baseline="1990–2019 calendar years (demo)",weighting="Equal GCM weights; fully balanced chain design",smoothing="Fourth-order polynomial, centred year",n_chains=len(chain_rows),levels=LEVELS,qa=dict(variance_closure=closure,monotonic_quantiles=monotonic,agreement=agreement,historical_skill="pending: observed data required",parameter_acceptance="pending: calibrated model required",bootstrap_stability="not implemented; no uncertainty intervals claimed"))
+    if closure>CLOSURE_TOLERANCE or not monotonic:
+        raise ValueError(f"Product QA failed: unattributed variance {closure:.1%}, monotonic quantiles {monotonic}")
+    metadata=dict(build_id=build_id,synthetic=True,node="demo-catchment",metric="annual_runoff",baseline="1990–2019 calendar years (demo)",weighting="Equal GCM weights; fully balanced chain design",smoothing="Fourth-order polynomial, centred year",n_chains=len(chain_rows),levels=LEVELS,qa=dict(unattributed_variance_fraction=closure,closure_tolerance=CLOSURE_TOLERANCE,member_count=len(LEVELS["member"]),monotonic_quantiles=monotonic,agreement=agreement,historical_skill="pending: observed data required",parameter_acceptance="pending: calibrated model required",bootstrap_stability="not implemented; no uncertainty intervals claimed"))
     (target/"metadata.json").write_text(json.dumps(metadata,indent=2))
     target.rename(destination)
     pending = Path(root,".current.tmp")

@@ -8,7 +8,7 @@ def test_baseline_and_closure():
     cube=demo_cube()
     np.testing.assert_allclose(cube.delta.sel(year=slice(1990,2019)).mean('year'),0,atol=1e-12)
     parts=partition(cube.delta)
-    np.testing.assert_allclose(sum(parts[c] for c in COMPONENTS),parts.total,rtol=.001)
+    np.testing.assert_allclose(sum(parts[c] for c in COMPONENTS)+parts.unattributed,parts.total,rtol=1e-9)
     assert all(float(parts[c].min())>=0 for c in COMPONENTS)
     assert float(parts.ssp[-1])>float(parts.ssp[30])
 
@@ -52,3 +52,55 @@ def test_known_main_and_interaction_effects():
     np.testing.assert_allclose(parts.hydro[-1],9*2,rtol=1e-10)
     np.testing.assert_allclose(parts.interaction[-1],16*2/3*2,rtol=1e-10)
     np.testing.assert_allclose(parts.internal,0,atol=1e-24)
+
+
+def _linear_members(effects):
+    import xarray as xr
+    delta=xr.zeros_like(demo_cube().delta)
+    m=xr.DataArray(effects,dims='member',coords={'member':delta.member})
+    return delta+m*(delta.year-1990)/110
+
+
+def test_member_response_difference_is_retained():
+    delta=_linear_members([-10.,10.])
+    parts=partition(delta)
+    np.testing.assert_allclose(parts.total[-1],100,rtol=1e-9)
+    np.testing.assert_allclose(parts.internal_slow[-1],100,rtol=1e-9)
+    np.testing.assert_allclose(parts.internal[-1],100,rtol=1e-9)
+    np.testing.assert_allclose(parts.unattributed[-1],0,atol=1e-9)
+    for f in ['ssp','gcm','ds','bc','hydro','interaction']:
+        np.testing.assert_allclose(parts[f],0,atol=1e-9)
+
+
+def test_member_effect_alongside_gcm_effect():
+    import xarray as xr
+    delta=_linear_members([-3.,3.])
+    g=xr.DataArray([-1.,0.,1.],dims='gcm',coords={'gcm':delta.gcm})
+    delta=delta+2*g*(delta.year-1990)/110
+    parts=partition(delta)
+    np.testing.assert_allclose(parts.gcm[-1],4*2/3,rtol=1e-9)
+    np.testing.assert_allclose(parts.internal_slow[-1],9,rtol=1e-9)
+
+
+def test_white_noise_is_fast_variability():
+    import xarray as xr
+    cube=demo_cube().delta
+    noise=np.random.default_rng(1).normal(0,5,cube.shape)
+    parts=partition(xr.DataArray(noise,coords=cube.coords,dims=cube.dims))
+    assert float(parts.internal_slow.max())<.12*25  # polynomial fits absorb a little noise: known estimator bias
+    np.testing.assert_allclose(parts.internal_fast,25,rtol=.1)
+    assert abs(float(parts.unattributed.mean()))<.15*25
+
+
+def test_single_member_flags_slow_variability_unestimable():
+    parts=partition(demo_cube().delta.isel(member=[0]))
+    np.testing.assert_allclose(parts.internal_slow,0,atol=1e-12)
+    assert int(parts.member_count)==1
+
+
+def test_total_is_independent_of_components():
+    cube=demo_cube().delta
+    parts=partition(cube)
+    np.testing.assert_allclose(parts.total,cube.var(['ssp','gcm','ds','bc','hydro','member']))
+    # Single years carry sampling noise (about 7% for 360 chains); judge the bias over all years.
+    assert abs(float(parts.unattributed.mean()))/float(parts.total.mean())<.05

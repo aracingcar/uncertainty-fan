@@ -4,6 +4,7 @@ import xarray as xr
 
 FACTORS = ["ssp", "gcm", "ds", "bc", "hydro"]
 COMPONENTS = FACTORS + ["interaction", "internal"]
+EXTRA = ["internal_slow", "internal_fast", "unattributed"]
 
 
 def normalise(value):
@@ -27,19 +28,33 @@ def split_response(delta, degree=4):
 
 
 def partition(delta):
+    """Split ensemble variance of `delta` by year.
+
+    Forced components come from the member-mean response. Member-to-member
+    differences in the smooth response are kept as `internal_slow` (law of total
+    variance, so the response-level split is exact); residuals about each
+    chain's own fit are `internal_fast`. `total` is the empirical variance across
+    all chains, not a sum of parts, and `unattributed` reports what is left.
+    """
     if not np.isfinite(delta).all():
         raise ValueError("Balanced ANOVA requires a complete, finite crossed design; use QUALYPSO for missing cells")
     response, residual = split_response(delta)
-    response = response.mean("member")
-    parts = {f: response.mean([g for g in FACTORS if g != f]).var(f) for f in FACTORS}
-    total_response = response.var(FACTORS)
+    member_mean = response.mean("member")
+    parts = {f: member_mean.mean([g for g in FACTORS if g != f]).var(f) for f in FACTORS}
+    total_response = member_mean.var(FACTORS)
     interaction = total_response - sum(parts.values())
     if float(interaction.min()) < -1e-8:
         raise ValueError("Negative interaction variance")
     parts["interaction"] = interaction.clip(min=0)
-    parts["internal"] = residual.var("year").mean() + 0 * total_response
+    slow = response.var("member").mean(FACTORS)
+    fast = residual.var("year").mean() + 0 * total_response
+    parts["internal_slow"] = slow
+    parts["internal_fast"] = fast
+    parts["internal"] = slow + fast
     result = xr.Dataset(parts)
-    result["total"] = sum(result[f] for f in COMPONENTS)
+    result["total"] = delta.var(FACTORS + ["member"])
+    result["unattributed"] = result["total"] - sum(result[c] for c in COMPONENTS)
+    result["member_count"] = delta.sizes["member"]
     return result
 
 
@@ -52,7 +67,8 @@ def cascade(delta, horizon):
         lo, median, hi = np.quantile(ensemble, [.1, .5, .9])
         rows.append(dict(stage=stage, p10=lo, p50=median, p90=hi, order=i))
     last = rows[-1]
-    iv = float(residual.var("year").mean())
+    slow = response.var("member").mean(FACTORS).sel(year=slice(horizon, horizon + 9)).mean("year")
+    iv = float(residual.var("year").mean() + slow)
     rows.append(dict(stage="internal", order=5, p50=last["p50"],
                      p10=last["p50"] - np.sqrt((last["p50"]-last["p10"])**2 + 1.2816**2*iv),
                      p90=last["p50"] + np.sqrt((last["p90"]-last["p50"])**2 + 1.2816**2*iv)))

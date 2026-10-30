@@ -15,6 +15,7 @@ async function get(path){
  }
  const r=await fetch(path);if(!r.ok)throw Error(`${path}: ${r.status}`);return r.json();
 }
+const comp=r=>Object.keys(colors).reduce((sum,f)=>sum+r[f],0);
 const mean=a=>a.reduce((s,v)=>s+v,0)/a.length;
 function quantile(sorted,p){const i=(sorted.length-1)*p,l=Math.floor(i);return sorted[l]+(sorted[Math.ceil(i)]-sorted[l])*(i-l)}
 function fanData(ids){return cube.years.map((year,j)=>{const a=ids.map(i=>cube.values[i][j]).sort((a,b)=>a-b);return {year,p05:quantile(a,.05),p10:quantile(a,.1),p50:quantile(a,.5),p90:quantile(a,.9),p95:quantile(a,.95)}}).filter(r=>r.year>=2020)}
@@ -49,7 +50,7 @@ function redraw(){
  s+=`<line x1="65" x2="1070" y1="${y(threshold)}" y2="${y(threshold)}" stroke="#a36143" stroke-dasharray="7 4"/><text x="1066" y="${y(threshold)-5}" text-anchor="end">Threshold ${threshold}%</text>`;
  $('fan').innerHTML=svg(s);
  $('agreement').textContent=`${sliced?'Slicers active: showing empirical filtered fan; variance shares below remain for the full scenario selection. ':''}${mismatch?'Range agreement flag: empirical P05–P95 and partitioned 90% widths differ by over 10%; dotted empirical limits shown.':'Empirical and partitioned 90% widths agree within 10%.'} ${scenario==='all'?'All scenarios pooled with equal design counts; SSPs have no assigned probabilities.':''}`;
- let area='';let cumulative=v.map(()=>0);for(const f of Object.keys(colors)){const rows=v.map((r,i)=>{const lo=cumulative[i];const hi=lo+(r.total?100*r[f]/r.total:0);cumulative[i]=hi;return {year:r.year,lo,hi}});area+=`<polygon points="${polygon(rows,r=>r.lo,r=>r.hi,x,z=>110-z)}" fill="${colors[f]}"/>`}
+ let area='';let cumulative=v.map(()=>0);for(const f of Object.keys(colors)){const rows=v.map((r,i)=>{const lo=cumulative[i];const hi=lo+(comp(r)?100*r[f]/comp(r):0);cumulative[i]=hi;return {year:r.year,lo,hi}});area+=`<polygon points="${polygon(rows,r=>r.lo,r=>r.hi,x,z=>110-z)}" fill="${colors[f]}"/>`}
  area+=`<text x="52" y="18" text-anchor="end">100%</text><text x="52" y="113" text-anchor="end">0%</text><text x="65" y="138">Fraction of total variance · unsliced scenario ensemble</text>`;
  $('shares').innerHTML=svg(area,150);
  drawCascade();drawBreaches(threshold);drawFutures();
@@ -57,7 +58,7 @@ function redraw(){
 }
 function drawCascade(){
  const rows=[...products.cascade].sort((a,b)=>a.order-b.order),h=Number($('horizon').value);
- const v=products.variance.filter(r=>r.year>=h&&r.year<h+10),total=mean(v.map(r=>r.total));
+ const v=products.variance.filter(r=>r.year>=h&&r.year<h+10),total=mean(v.map(comp));
  const shares=Object.fromEntries(Object.keys(colors).map(f=>[f,total?100*mean(v.map(r=>r[f]))/total:0]));
  $('headline').textContent=`Climate ${(shares.ssp+shares.gcm+shares.ds+shares.bc).toFixed(0)}% · Hydro ${shares.hydro.toFixed(0)}% · IV ${shares.internal.toFixed(0)}% · Interactions ${shares.interaction.toFixed(0)}%`;
  const lo=Math.min(...rows.map(r=>r.p10)),hi=Math.max(...rows.map(r=>r.p90)),scale=z=>165-(z-lo)/Math.max(hi-lo,1)*125;
