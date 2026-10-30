@@ -127,6 +127,17 @@ Acceptance: grep for `lower bound` and `Partitioned 90%` returns nothing in `web
 4. **UI.** Show shares as ranges where sensitivity is available, e.g. "Variability 8% (5–14%)", with a tooltip listing the estimators. Remove single-point percentages from the headline.
 5. **Bootstrap.** Implement the GCM bootstrap listed in the original guide's QA section (500 draws, resampling GCMs); today `bootstrap_stability` is "not implemented" ([build.py:88](../hydrofan/build.py)). Until it exists, state "no uncertainty intervals" beside the shares (already in the provenance text).
 
+**Status: done.** `fit_response` offers `poly2/3/4/6`, `lowess` (30-year tricube local-linear) and `member_mean`; the build writes `sensitivity` and `bootstrap` tables, `/sensitivity` and `/bootstrap` serve them, and the headline shows each share with its estimator range and a bootstrap tooltip. `tests/test_estimators.py` prints the truth table (`pytest -s`). Measured on synthetic series (share of true natural variance recovered, annual):
+
+| Variability | poly2 | poly3 | poly4 | poly6 | lowess | member_mean |
+| --- | --- | --- | --- | --- | --- | --- |
+| white noise | 1.02 | 0.98 | 0.98 | 0.96 | 0.95 | 0.98 |
+| AR(1), φ = 0.6 | 0.98 | 0.93 | 0.91 | 0.88 | 0.82 | 0.94 |
+| 40-year cycle | 1.03 | 0.94 | 0.93 | 0.79 | 0.39 | 1.06 |
+| 100-year cycle | 0.74 | 0.58 | 0.54 | 0.53 | 0.48 | 1.05 |
+
+The review's concern holds only for slow variability: a degree-4 polynomial keeps a 40-year cycle as "internal" (0.93) but absorbs about half of a century-long one (0.54). `member_mean` recovers both, but needs at least two members and inflates forced-factor variance by about σ²/M, so it is one view, not the answer. On the demo cube the internal share for SSP2-4.5 in the 2050s ranges 7–15% across estimators, and the GCM bootstrap (three GCMs) gives 8–41%. The build records 82 of 256 bootstrap intervals wider than 30 points and does not fail on them.
+
 Accept when the same share can be seen changing under alternative estimators on the page, and the test output documents where `poly4` fails.
 
 ### WI-6 Rename "Hydrology" and add absolute values (finding 6)

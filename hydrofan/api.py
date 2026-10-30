@@ -89,6 +89,16 @@ def create_app(data_dir=None):
         check(node,metric)
         return envelope(rows("quantiles",dict(metric=metric,ssp=ssp,slice=slice,timescale=known(timescale))))
 
+    @app.get("/sensitivity")
+    def sensitivity(node: str, metric: str, horizon: int=2050, ssp: str="all", timescale: str="decadal"):
+        check(node,metric)
+        return envelope(rows("sensitivity",dict(metric=metric,horizon=horizon,ssp=ssp,timescale=known(timescale))))
+
+    @app.get("/bootstrap")
+    def bootstrap(node: str, metric: str, horizon: int=2050, ssp: str="all", timescale: str="decadal"):
+        check(node,metric)
+        return envelope(rows("bootstrap",dict(metric=metric,horizon=horizon,ssp=ssp,timescale=known(timescale))))
+
     @app.get("/exceedance")
     def exceedance(node: str, metric: str, threshold_id: str="runoff-minus20", rule: str="annual"):
         check(node,metric)

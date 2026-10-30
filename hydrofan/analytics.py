@@ -29,12 +29,55 @@ def split_response(delta, degree=4):
     return response, delta - response
 
 
+ESTIMATORS = ["poly2", "poly3", "poly4", "poly6", "lowess", "member_mean"]
+DEFAULT_ESTIMATOR = "poly4"
+
+
+def _local_linear_matrix(years, span=30):
+    """Smoother matrix of a tricube local-linear fit over the `span` nearest years."""
+    years = np.asarray(years, float)
+    n = len(years)
+    k = min(n, span)
+    smoother = np.zeros((n, n))
+    for i, t in enumerate(years):
+        d = np.abs(years - t)
+        h = max(np.sort(d)[k - 1], 1.0) * 1.0001
+        w = np.clip(1 - (d / h) ** 3, 0, None) ** 3
+        X = np.stack([np.ones(n), years - t])
+        smoother[i] = (np.linalg.pinv((X * w) @ X.T) @ (X * w))[0]
+    return smoother
+
+
+def fit_response(delta, estimator=DEFAULT_ESTIMATOR):
+    """Split `delta` into (forced response, residual) with one of ESTIMATORS.
+
+    Every estimator is an assumption about what counts as slow forced change:
+    compare them (see `sensitivity`) before trusting a single set of shares.
+    """
+    if estimator not in ESTIMATORS:
+        raise ValueError(f"estimator must be one of {ESTIMATORS}")
+    if estimator.startswith("poly"):
+        return split_response(delta, int(estimator[4:]))
+    if estimator == "lowess":
+        axis = delta.get_axis_num("year")
+        smoother = _local_linear_matrix(delta.year.values)
+        values = np.moveaxis(np.tensordot(smoother, np.moveaxis(delta.values, axis, 0), axes=(1, 0)), 0, axis)
+        response = xr.DataArray(values, coords=delta.coords, dims=delta.dims)
+        return response, delta - response
+    members = delta.sizes["member"]
+    if members < 2:
+        raise ValueError("member_mean needs at least two members")
+    response = delta.mean("member").expand_dims(member=delta.member).transpose(*delta.dims)
+    # Deviations from a mean of M members understate member variance by (M-1)/M.
+    return response, (delta - response) * np.sqrt(members / (members - 1))
+
+
 def decadal_mean(x):
     """Centred 10-year running mean (window year-5..year+4); drops years without a full window."""
     return x.rolling(year=WINDOW, center=True).mean().dropna("year", how="any")
 
 
-def at_timescale(delta, timescale):
+def at_timescale(delta, timescale, estimator=DEFAULT_ESTIMATOR):
     """Return (delta, response, residual) on one timescale.
 
     Decadal: every series is smoothed with the same running mean, so residual
@@ -42,13 +85,36 @@ def at_timescale(delta, timescale):
     """
     if timescale not in TIMESCALES:
         raise ValueError(f"timescale must be one of {TIMESCALES}")
-    response, residual = split_response(delta)
+    response, residual = fit_response(delta, estimator)
     if timescale == "annual":
         return delta, response, residual
     return decadal_mean(delta), decadal_mean(response), decadal_mean(residual)
 
 
-def partition(delta, timescale="decadal"):
+def _parts(delta, response, residual, years=None):
+    """Variance components from an already-fitted split; `years` limits the output years."""
+    member_mean = response.mean("member")
+    fast = residual.var("year").mean()  # pooled over all years, then constant
+    if years is not None:
+        delta, response, member_mean = (a.sel(year=years) for a in (delta, response, member_mean))
+    parts = {f: member_mean.mean([g for g in FACTORS if g != f]).var(f) for f in FACTORS}
+    total_response = member_mean.var(FACTORS)
+    interaction = total_response - sum(parts.values())
+    if float(interaction.min()) < -1e-8:
+        raise ValueError("Negative interaction variance")
+    parts["interaction"] = interaction.clip(min=0)
+    slow = response.var("member").mean(FACTORS)
+    parts["internal_slow"] = slow
+    parts["internal_fast"] = fast + 0 * total_response
+    parts["internal"] = slow + parts["internal_fast"]
+    result = xr.Dataset(parts)
+    result["total"] = delta.var(FACTORS + ["member"])
+    result["unattributed"] = result["total"] - sum(result[c] for c in COMPONENTS)
+    result["member_count"] = delta.sizes["member"]
+    return result
+
+
+def partition(delta, timescale="decadal", estimator=DEFAULT_ESTIMATOR):
     """Split ensemble variance of `delta` by year.
 
     Forced components come from the member-mean response. Member-to-member
@@ -59,31 +125,70 @@ def partition(delta, timescale="decadal"):
     """
     if not np.isfinite(delta).all():
         raise ValueError("Balanced ANOVA requires a complete, finite crossed design; use QUALYPSO for missing cells")
-    delta, response, residual = at_timescale(delta, timescale)
-    member_mean = response.mean("member")
-    parts = {f: member_mean.mean([g for g in FACTORS if g != f]).var(f) for f in FACTORS}
-    total_response = member_mean.var(FACTORS)
-    interaction = total_response - sum(parts.values())
-    if float(interaction.min()) < -1e-8:
-        raise ValueError("Negative interaction variance")
-    parts["interaction"] = interaction.clip(min=0)
-    slow = response.var("member").mean(FACTORS)
-    fast = residual.var("year").mean() + 0 * total_response
-    parts["internal_slow"] = slow
-    parts["internal_fast"] = fast
-    parts["internal"] = slow + fast
-    result = xr.Dataset(parts)
-    result["total"] = delta.var(FACTORS + ["member"])
-    result["unattributed"] = result["total"] - sum(result[c] for c in COMPONENTS)
-    result["member_count"] = delta.sizes["member"]
-    result.attrs["timescale"] = timescale
+    delta, response, residual = at_timescale(delta, timescale, estimator)
+    result = _parts(delta, response, residual)
+    result.attrs.update(timescale=timescale, estimator=estimator)
     return result
 
 
-def cascade(delta, horizon, timescale="decadal"):
+GROUPS = {"climate": ["ssp", "gcm", "ds", "bc"], "hydro": ["hydro"], "internal": ["internal"], "interaction": ["interaction"]}
+
+
+def horizon_years(horizon, timescale):
+    """Years of a partition that describe the decade `horizon`…`horizon`+9."""
+    return [horizon + 5] if timescale == "decadal" else list(range(horizon, horizon + 10))
+
+
+def shares(parts, horizon, timescale):
+    """Percent shares of attributed variance for a horizon, as the dashboard headline shows them."""
+    sel = parts.sel(year=horizon_years(horizon, timescale))
+    means = {c: float(sel[c].mean()) for c in COMPONENTS}
+    total = sum(means.values())
+    shares_ = {c: 100 * v / total if total else 0.0 for c, v in means.items()}
+    return {g: sum(shares_[c] for c in members) for g, members in GROUPS.items()}
+
+
+def _group_shares(resp, fast, year_idx):
+    """Numpy equivalent of shares(_parts(...)) for one set of years; `resp` is factors+member+year."""
+    resp = resp[..., year_idx]
+    mm = resp.mean(axis=5)                                   # member-mean response: ssp,gcm,ds,bc,hydro,year
+    comp = {}
+    for k, f in enumerate(FACTORS):
+        others = tuple(a for a in range(5) if a != k)
+        comp[f] = mm.mean(axis=others).var(axis=0).mean()
+    inter = mm.var(axis=tuple(range(5))).mean() - sum(comp.values())
+    comp["interaction"] = max(inter, 0.0)
+    comp["internal"] = resp.var(axis=5).mean() + fast
+    total = sum(comp.values())
+    return {g: 100 * sum(comp[c] for c in members) / total for g, members in GROUPS.items()}
+
+
+def bootstrap_shares(delta, horizons, timescale="decadal", draws=500, seed=0, estimator=DEFAULT_ESTIMATOR):
+    """Resample GCMs with replacement and return share draws per horizon.
+
+    The response/residual split is estimated once; each draw only reshuffles the GCM
+    axis of the fitted arrays (the GCMs are the units being resampled).
+    """
+    delta, response, residual = at_timescale(delta, timescale, estimator)
+    resp = response.transpose(*FACTORS, "member", "year").values
+    fast = float(residual.var("year").mean())
+    years = list(delta.year.values)
+    index = {h: [years.index(y) for y in horizon_years(h, timescale)] for h in horizons}
+    rng = np.random.default_rng(seed)
+    n = resp.shape[1]
+    out = {h: {g: [] for g in GROUPS} for h in horizons}
+    for _ in range(draws):
+        sample = resp[:, rng.integers(0, n, n)]
+        for h in horizons:
+            for g, value in _group_shares(sample, fast, index[h]).items():
+                out[h][g].append(value)
+    return out
+
+
+def cascade(delta, horizon, timescale="decadal", estimator=DEFAULT_ESTIMATOR):
     if timescale not in TIMESCALES:
         raise ValueError(f"timescale must be one of {TIMESCALES}")
-    response, residual = split_response(delta)
+    response, residual = fit_response(delta, estimator)
     if timescale == "decadal":
         residual = decadal_mean(residual)  # variance of a decadal mean, not of a single year
     decade = response.sel(year=slice(horizon, horizon + 9)).mean("year")

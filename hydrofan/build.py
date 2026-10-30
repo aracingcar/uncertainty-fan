@@ -8,12 +8,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import xarray as xr
-from .analytics import RULES, TIMESCALES, FACTORS, COMPONENTS, EXTRA, at_timescale, normalise, partition, cascade, breaches, split_response
+from .analytics import ESTIMATORS, DEFAULT_ESTIMATOR, GROUPS, shares, bootstrap_shares, RULES, TIMESCALES, FACTORS, COMPONENTS, EXTRA, at_timescale, normalise, partition, cascade, breaches, split_response
 
 LEVELS = {"ssp": ["SSP1-2.6", "SSP2-4.5", "SSP3-7.0"],
           "gcm": ["ACCESS-CM2", "EC-Earth3", "MPI-ESM1-2-HR"],
           "ds": ["RCM-A", "RCM-B"], "bc": ["QME", "QDM"],
           "hydro": [f"P{i:02}" for i in range(1, 6)], "member": ["r1", "r2"]}
+HORIZONS = [2030, 2050, 2070, 2090]
 CLOSURE_TOLERANCE = .05
 # Percentage change removes each chain's baseline; absolute values keep baseline differences.
 METRICS = [dict(id="annual_runoff", var="delta", name="Annual runoff · change", units="% change vs own 1990–2019 mean", threshold_id="runoff-minus20"),
@@ -35,7 +36,7 @@ def demo_cube():
     return xr.Dataset({"value": value, "delta": normalise(value), "valid": value.notnull().all("year")})
 
 
-def build(root):
+def build(root, bootstrap_draws=500):
     cube = demo_cube()
     fingerprint = cube.value.values.tobytes() + Path(__file__).read_bytes() + Path(__file__).with_name("analytics.py").read_bytes()
     build_id = "demo-" + hashlib.sha256(fingerprint).hexdigest()[:12]
@@ -50,7 +51,7 @@ def build(root):
     chain_rows = [dict(chain_id=f"demo-{i:04}", **dict(zip(LEVELS, levels)), provenance="Synthetic demonstration; no CMIP6 or Source outputs")
                   for i, levels in enumerate(itertools.product(*LEVELS.values()))]
     pd.DataFrame(chain_rows).to_parquet(target / "chains.parquet", index=False)
-    tables = {name: [] for name in ["variance", "quantiles", "cascade", "exceedance", "futures"]}
+    tables = {name: [] for name in ["variance", "quantiles", "cascade", "exceedance", "futures", "sensitivity", "bootstrap"]}
     agreement = []
     for metric in METRICS:
         for scenario in ["all"] + LEVELS["ssp"]:
@@ -62,6 +63,18 @@ def build(root):
                     tables["variance"].append(dict(metric=metric["id"], ssp=scenario, timescale=timescale, year=int(year), member_count=int(parts.member_count), **{"var_"+f: float(parts[f][j]) for f in COMPONENTS + EXTRA + ["total"]}))
                     q = np.quantile(series.sel(year=year).values, [.05,.1,.25,.5,.75,.9,.95])
                     tables["quantiles"].append(dict(metric=metric["id"], ssp=scenario, timescale=timescale, year=int(year), slice="all", n_chains=int(series.size/len(parts.year)), mean=float(response.sel(year=year).mean()), **dict(zip(["p05","p10","p25","p50","p75","p90","p95"], q))))
+                for estimator in ESTIMATORS:
+                    fitted = parts if estimator == DEFAULT_ESTIMATOR else partition(delta, timescale, estimator)
+                    for horizon in HORIZONS:
+                        tables["sensitivity"].append(dict(metric=metric["id"],ssp=scenario,timescale=timescale,estimator=estimator,horizon=horizon,
+                                                          **{"share_"+g: v for g, v in shares(fitted, horizon, timescale).items()}))
+                draws = bootstrap_shares(delta, HORIZONS, timescale, bootstrap_draws)
+                for horizon in HORIZONS:
+                    row = dict(metric=metric["id"],ssp=scenario,timescale=timescale,horizon=horizon,draws=bootstrap_draws,gcm_count=len(LEVELS["gcm"]))
+                    for g, values in draws[horizon].items():
+                        lo, mid, hi = np.percentile(values, [5, 50, 95])
+                        row.update({f"{g}_p05": float(lo), f"{g}_p50": float(mid), f"{g}_p95": float(hi)})
+                    tables["bootstrap"].append(row)
                 for horizon in [2030,2050,2070,2090]:
                     tables["cascade"].extend(dict(metric=metric["id"],ssp=scenario,timescale=timescale,horizon=horizon,**r) for r in cascade(delta,horizon,timescale))
                 for decade in range(2030,2100,10):
@@ -95,7 +108,17 @@ def build(root):
     monotonic = all(all(r[a]<=r[b] for a,b in zip(["p05","p10","p25","p50","p75","p90"],["p10","p25","p50","p75","p90","p95"])) for r in tables["quantiles"])
     if closure>CLOSURE_TOLERANCE or not monotonic:
         raise ValueError(f"Product QA failed: unattributed variance {closure:.1%}, monotonic quantiles {monotonic}")
-    metadata=dict(build_id=build_id,synthetic=True,node="demo-catchment",metric="annual_runoff",metrics=METRICS,baseline_spread_abs=dict(zip(["p10","p50","p90"],map(float,np.quantile(cube.value.sel(year=slice(1990,2019)).mean("year").values,[.1,.5,.9])))),baseline="1990–2019 calendar years (demo)",weighting="Equal GCM weights; fully balanced chain design",smoothing="Fourth-order polynomial, centred year",timescales=dict(default="decadal",decadal="Centred 10-year running mean (label year y = mean of y-5..y+4); every stage smoothed alike",annual="Single years"),exceedance_timescale="annual",n_chains=len(chain_rows),levels=LEVELS,qa=dict(unattributed_variance_fraction=closure,closure_tolerance=CLOSURE_TOLERANCE,member_count=len(LEVELS["member"]),monotonic_quantiles=monotonic,agreement=agreement,historical_skill="pending: observed data required",parameter_acceptance="pending: calibrated model required",bootstrap_stability="not implemented; no uncertainty intervals claimed"))
+    sens = pd.DataFrame(tables["sensitivity"])
+    spread = sens.groupby(["metric","ssp","timescale","horizon"])[[c for c in sens if c.startswith("share_")]].agg(lambda x: x.max() - x.min())
+    estimator_qa = dict(estimators=ESTIMATORS, default=DEFAULT_ESTIMATOR,
+                        max_share_range_points={c[6:]: round(float(spread[c].max()), 1) for c in spread},
+                        note="Range of each variance share across estimators; table: sensitivity.parquet")
+    boot = pd.DataFrame(tables["bootstrap"])
+    widths = pd.concat([boot[f"{g}_p95"] - boot[f"{g}_p05"] for g in GROUPS])
+    bootstrap_qa = dict(draws=bootstrap_draws, resampled="GCMs, with replacement", gcm_count=len(LEVELS["gcm"]),
+                        interval="90% (P05–P95)", flagged_over_30_points=int((widths > 30).sum()), intervals=int(widths.size),
+                        note="Few GCMs give wide intervals; shares are not settled quantities")
+    metadata=dict(build_id=build_id,synthetic=True,node="demo-catchment",metric="annual_runoff",metrics=METRICS,baseline_spread_abs=dict(zip(["p10","p50","p90"],map(float,np.quantile(cube.value.sel(year=slice(1990,2019)).mean("year").values,[.1,.5,.9])))),baseline="1990–2019 calendar years (demo)",weighting="Equal GCM weights; fully balanced chain design",smoothing="Fourth-order polynomial, centred year",timescales=dict(default="decadal",decadal="Centred 10-year running mean (label year y = mean of y-5..y+4); every stage smoothed alike",annual="Single years"),exceedance_timescale="annual",n_chains=len(chain_rows),levels=LEVELS,qa=dict(unattributed_variance_fraction=closure,closure_tolerance=CLOSURE_TOLERANCE,member_count=len(LEVELS["member"]),monotonic_quantiles=monotonic,agreement=agreement,historical_skill="pending: observed data required",parameter_acceptance="pending: calibrated model required",bootstrap_stability=bootstrap_qa,estimator_sensitivity=estimator_qa))
     (target/"metadata.json").write_text(json.dumps(metadata,indent=2))
     target.rename(destination)
     pending = Path(root,".current.tmp")
@@ -106,4 +129,6 @@ def build(root):
 if __name__ == "__main__":
     parser=argparse.ArgumentParser()
     parser.add_argument("--output",default="data")
-    build(parser.parse_args().output)
+    parser.add_argument("--bootstrap-draws",type=int,default=500)
+    args=parser.parse_args()
+    build(args.output,args.bootstrap_draws)

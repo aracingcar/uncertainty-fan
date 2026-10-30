@@ -64,3 +64,17 @@ def test_absolute_metric_is_separate_product(client):
     assert 50<cube['values'][0][0]<200
     assert client.get('/exceedance',params=dict(node='demo-catchment',metric='annual_runoff_abs')).json()['data']==[]
     assert client.get('/variance',params=dict(node='demo-catchment',metric='nope')).status_code==404
+
+
+def test_sensitivity_and_bootstrap_products(client):
+    p=dict(node='demo-catchment',metric='annual_runoff',ssp='all',horizon=2050)
+    sens=client.get('/sensitivity',params=p).json()['data']
+    assert {r['estimator'] for r in sens}=={'poly2','poly3','poly4','poly6','lowess','member_mean'}
+    for r in sens:
+        assert abs(r['share_climate']+r['share_hydro']+r['share_internal']+r['share_interaction']-100)<1e-6
+    assert max(r['share_internal'] for r in sens)-min(r['share_internal'] for r in sens)>.5
+    boot=client.get('/bootstrap',params=p).json()['data']
+    assert len(boot)==1 and boot[0]['draws']>=1 and boot[0]['climate_p05']<=boot[0]['climate_p50']<=boot[0]['climate_p95']
+    meta=client.get('/metadata').json()
+    assert meta['qa']['bootstrap_stability']['resampled'].startswith('GCMs')
+    assert 'internal' in meta['qa']['estimator_sensitivity']['max_share_range_points']

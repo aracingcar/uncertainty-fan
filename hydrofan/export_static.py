@@ -18,7 +18,7 @@ def export_static(data_dir='data', output='_site'):
         raise ValueError('Public demo exporter requires an explicitly synthetic release')
     tables = {
         name: pd.read_parquet(release / f'{name}.parquet').to_dict(orient='records')
-        for name in ['chains', 'variance', 'quantiles', 'cascade', 'exceedance', 'futures']
+        for name in ['chains', 'variance', 'quantiles', 'cascade', 'exceedance', 'futures', 'sensitivity', 'bootstrap']
     }
     with xr.open_zarr(release / 'metrics.zarr') as cube:
         cubes = {m['id']: dict(years=cube.year.values.tolist(),
