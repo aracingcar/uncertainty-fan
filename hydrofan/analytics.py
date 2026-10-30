@@ -75,17 +75,38 @@ def cascade(delta, horizon):
     return rows
 
 
-def breaches(values, threshold, rule="annual", persistent_years=3):
-    """values: chains × years, equal chain counts per GCM required."""
+RULES = ["annual", "dry_years_per_decade", "consecutive_run", "decadal_mean"]
+RULE_ALIASES = {"persistent": "dry_years_per_decade"}  # deprecated; remove after one release
+
+
+def longest_run(mask):
+    """Longest run of True along the last axis."""
+    mask = np.asarray(mask, dtype=bool)
+    best = np.zeros(mask.shape[:-1], dtype=int)
+    run = np.zeros_like(best)
+    for k in range(mask.shape[-1]):
+        run = np.where(mask[..., k], run + 1, 0)
+        best = np.maximum(best, run)
+    return best
+
+
+def breaches(values, threshold, rule="annual", years=3):
+    """values: chains × years (one decade); equal chain counts per GCM required.
+
+    dry_years_per_decade: any `years` below-threshold years. consecutive_run: `years`
+    in a row, truncated at the decade boundary.
+    """
     values = np.asarray(values)
+    rule = RULE_ALIASES.get(rule, rule)
     if values.ndim != 2 or not np.isfinite(values).all() or not len(values):
         raise ValueError("Expected nonempty finite chain-year matrix")
     if rule == "annual":
         mask = values < threshold
-    elif rule == "persistent":
-        if not 1 <= persistent_years <= values.shape[1]:
-            raise ValueError("Invalid persistent-year count")
-        mask = (values < threshold).sum(axis=1) >= persistent_years
+    elif rule in ("dry_years_per_decade", "consecutive_run"):
+        if not 1 <= years <= values.shape[1]:
+            raise ValueError("Invalid dry-year count")
+        dry = values < threshold
+        mask = (dry.sum(axis=1) if rule == "dry_years_per_decade" else longest_run(dry)) >= years
     elif rule == "decadal_mean":
         mask = values.mean(axis=1) < threshold
     else:

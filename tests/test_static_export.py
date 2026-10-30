@@ -23,6 +23,9 @@ def test_static_site_export(tmp_path):
     assert len(bundle['tables']['variance']) == 4 * 111
     assert len(bundle['tables']['cascade']) == 4 * 4 * 6
     assert all(row['build_id'] == bundle['metadata']['build_id'] for row in bundle['tables']['variance'])
+    assert (site / 'stats.js').exists()
+    rules = {row['rule'] for row in bundle['tables']['exceedance']}
+    assert rules == {'annual', 'dry_years_per_decade', 'consecutive_run', 'decadal_mean'}
     chain_list = json.loads((site / 'data/chains.json').read_text())
     assert chain_list['data'] == bundle['tables']['chains']
     # Confirm public deployment cannot accidentally export a real-data release.

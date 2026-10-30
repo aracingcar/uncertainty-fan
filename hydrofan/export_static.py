@@ -27,7 +27,7 @@ def export_static(data_dir='data', output='_site'):
     assets = Path(__file__).resolve().parent.parent / 'web'
     output.mkdir(parents=True, exist_ok=True)
     (output / 'data').mkdir(exist_ok=True)
-    for filename in ['app.js', 'static-products.js', 'style.css']:
+    for filename in ['app.js', 'static-products.js', 'stats.js', 'style.css']:
         shutil.copy2(assets / filename, output / filename)
     html = (assets / 'index.html').read_text()
     html = html.replace('<html lang="en">', '<html lang="en" data-static="true">')

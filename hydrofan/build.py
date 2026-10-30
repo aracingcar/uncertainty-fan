@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import xarray as xr
-from .analytics import FACTORS, COMPONENTS, EXTRA, normalise, partition, cascade, breaches, split_response
+from .analytics import RULES, FACTORS, COMPONENTS, EXTRA, normalise, partition, cascade, breaches, split_response
 
 LEVELS = {"ssp": ["SSP1-2.6", "SSP2-4.5", "SSP3-7.0"],
           "gcm": ["ACCESS-CM2", "EC-Earth3", "MPI-ESM1-2-HR"],
@@ -62,7 +62,7 @@ def build(root):
         if scenario != "all":
             for decade in range(2030,2100,10):
                 annual = delta.sel(year=slice(decade,decade+9)).values.reshape(-1,10)
-                for rule in ["annual", "persistent", "decadal_mean"]:
+                for rule in RULES:
                     tables["exceedance"].append(dict(ssp=scenario,decade=decade,threshold_id="runoff-minus20",threshold=-20,rule=rule,**breaches(annual,-20,rule)))
         for decade in range(2030,2100,10):
             sub = delta.sel(year=slice(decade,decade+9))

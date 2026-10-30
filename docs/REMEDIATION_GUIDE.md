@@ -72,6 +72,8 @@ Record each answer in `docs/decisions.md` (one line each) so later reviewers can
 - Python/JS parity: a shared fixture JSON of mask vectors with expected results, asserted in both `tests/test_analytics.py` and `tests/static-products.test.mjs`.
 - Regression: on the seed-42 cube (SSP2-4.5, 2050s, −20%) expect **31.7% / 16.7%** for the two rules (confirm after any change to `demo_cube`).
 
+**Status: done** (Python, `web/stats.js`, API alias, export; parity fixture in `tests/fixtures/breach_rules.json`). Rule parameter in code is `years`; the HTML id `persistent` is unchanged.
+
 **Accept when** both rules appear in the UI with their own labels and denominators, and the table above is reproduced.
 
 ### WI-3 One timescale across every stage (finding 3)

@@ -33,11 +33,11 @@ def test_zero_baseline_rejected():
 def test_breach_rules_have_distinct_denominators():
     values=np.array([[0,0,0,10],[10,10,10,10]])
     assert breaches(values,5,'annual')==dict(n_breach=3,denominator=8,n_chains=2,breach_share=3/8)
-    assert breaches(values,5,'persistent',3)['breach_share']==.5
+    assert breaches(values,5,'dry_years_per_decade',3)['breach_share']==.5
     assert breaches(values,5,'decadal_mean')['breach_share']==.5
     assert breaches(values,0)['n_breach']==0  # strictly below
     with pytest.raises(ValueError):
-        breaches(values,5,'persistent',5)
+        breaches(values,5,'dry_years_per_decade',5)
 
 
 def test_known_main_and_interaction_effects():
@@ -104,3 +104,27 @@ def test_total_is_independent_of_components():
     np.testing.assert_allclose(parts.total,cube.var(['ssp','gcm','ds','bc','hydro','member']))
     # Single years carry sampling noise (about 7% for 360 chains); judge the bias over all years.
     assert abs(float(parts.unattributed.mean()))/float(parts.total.mean())<.05
+
+
+def test_consecutive_differs_from_dry_years():
+    values=np.array([[-30,-30,0,-30,0,0,0,0,0,0],[0,-30,-30,-30,0,0,0,0,0,0]])
+    assert breaches(values,-20,'dry_years_per_decade',3)['n_breach']==2
+    assert breaches(values,-20,'consecutive_run',3)['n_breach']==1
+    assert breaches(values,-20,'persistent',3)==breaches(values,-20,'dry_years_per_decade',3)
+
+
+def test_seed42_persistence_regression():
+    d=demo_cube().delta.sel(ssp='SSP2-4.5',year=slice(2050,2059)).values.reshape(-1,10)
+    assert breaches(d,-20,'dry_years_per_decade',3)['n_breach']==38
+    assert breaches(d,-20,'consecutive_run',3)['n_breach']==20
+    assert breaches(d,-20)['denominator']==len(d)*10
+
+
+def test_shared_fixture():
+    import json,pathlib
+    from hydrofan.analytics import longest_run
+    for c in json.loads(pathlib.Path(__file__).with_name('fixtures').joinpath('breach_rules.json').read_text()):
+        dry=np.array([c['dry']],bool); v=np.where(dry,-30.,0.)
+        assert int(longest_run(dry)[0])==c['longest_run']
+        assert bool(breaches(v,-20,'dry_years_per_decade',c['n'])['n_breach'])==c['dry_years_per_decade']
+        assert bool(breaches(v,-20,'consecutive_run',c['n'])['n_breach'])==c['consecutive_run']

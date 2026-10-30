@@ -11,6 +11,7 @@ import xarray as xr
 from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from .analytics import RULES, RULE_ALIASES
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -85,6 +86,8 @@ def create_app(data_dir=None):
     @app.get("/exceedance")
     def exceedance(node: str, metric: str, threshold_id: str="runoff-minus20", rule: str="annual"):
         check(node,metric)
+        rule=RULE_ALIASES.get(rule,rule)
+        if rule not in RULES: raise HTTPException(422,f"rule must be one of {RULES}")
         return envelope(rows("exceedance",dict(threshold_id=threshold_id,rule=rule)))
 
     @app.get("/futures")

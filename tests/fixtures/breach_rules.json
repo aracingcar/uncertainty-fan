@@ -1,0 +1,8 @@
+[
+  {"dry": [1,1,0,1,0,0,0,0,0,0], "n": 3, "dry_years_per_decade": true,  "consecutive_run": false, "longest_run": 2},
+  {"dry": [0,1,1,1,0,0,0,0,0,0], "n": 3, "dry_years_per_decade": true,  "consecutive_run": true,  "longest_run": 3},
+  {"dry": [1,0,0,0,0,0,0,0,0,0], "n": 1, "dry_years_per_decade": true,  "consecutive_run": true,  "longest_run": 1},
+  {"dry": [1,1,1,1,1,1,1,1,1,1], "n": 10, "dry_years_per_decade": true, "consecutive_run": true,  "longest_run": 10},
+  {"dry": [1,1,0,0,0,0,0,0,1,1], "n": 3, "dry_years_per_decade": true,  "consecutive_run": false, "longest_run": 2},
+  {"dry": [0,0,0,0,0,0,0,0,0,0], "n": 1, "dry_years_per_decade": false, "consecutive_run": false, "longest_run": 0}
+]
