@@ -16,3 +16,19 @@ export function breachCount(values, threshold, rule, n = 3) {
     default: throw new Error(`Unknown breach rule: ${rule}`);
   }
 }
+
+/**
+ * Centred 10-year running mean matching hydrofan.analytics.decadal_mean: the value labelled
+ * year y is the mean of y-5 … y+4; years without a full window are dropped.
+ */
+export function runningMean(years, values, window = 10) {
+  const before = Math.floor(window / 2), after = window - before - 1;
+  const out = {years: [], values: []};
+  for (let k = before; k + after < values.length; k++) {
+    let sum = 0;
+    for (let m = k - before; m <= k + after; m++) sum += values[m];
+    out.years.push(years[k]);
+    out.values.push(sum / window);
+  }
+  return out;
+}

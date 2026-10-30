@@ -15,3 +15,12 @@ test('breach rules match the shared fixture', () => {
 });
 
 test('unknown rule is rejected', () => assert.throws(() => breachCount([0], -20, 'persistent'), /Unknown/));
+
+import { runningMean } from '../web/stats.js';
+
+test('running mean labels windows y-5..y+4 and drops incomplete ones', () => {
+  const years = Array.from({length: 20}, (_, i) => 2000 + i);
+  const out = runningMean(years, years.map((_, i) => i));
+  assert.deepEqual([out.years[0], out.years.at(-1), out.years.length], [2005, 2015, 11]);
+  assert.deepEqual([out.values[0], out.values.at(-1)], [4.5, 14.5]);
+});

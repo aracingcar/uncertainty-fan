@@ -4,6 +4,8 @@ import xarray as xr
 
 FACTORS = ["ssp", "gcm", "ds", "bc", "hydro"]
 COMPONENTS = FACTORS + ["interaction", "internal"]
+TIMESCALES = ["decadal", "annual"]
+WINDOW = 10  # years in a decadal mean
 EXTRA = ["internal_slow", "internal_fast", "unattributed"]
 
 
@@ -27,7 +29,26 @@ def split_response(delta, degree=4):
     return response, delta - response
 
 
-def partition(delta):
+def decadal_mean(x):
+    """Centred 10-year running mean (window year-5..year+4); drops years without a full window."""
+    return x.rolling(year=WINDOW, center=True).mean().dropna("year", how="any")
+
+
+def at_timescale(delta, timescale):
+    """Return (delta, response, residual) on one timescale.
+
+    Decadal: every series is smoothed with the same running mean, so residual
+    variance keeps its serial dependence (not annual variance divided by 10).
+    """
+    if timescale not in TIMESCALES:
+        raise ValueError(f"timescale must be one of {TIMESCALES}")
+    response, residual = split_response(delta)
+    if timescale == "annual":
+        return delta, response, residual
+    return decadal_mean(delta), decadal_mean(response), decadal_mean(residual)
+
+
+def partition(delta, timescale="decadal"):
     """Split ensemble variance of `delta` by year.
 
     Forced components come from the member-mean response. Member-to-member
@@ -38,7 +59,7 @@ def partition(delta):
     """
     if not np.isfinite(delta).all():
         raise ValueError("Balanced ANOVA requires a complete, finite crossed design; use QUALYPSO for missing cells")
-    response, residual = split_response(delta)
+    delta, response, residual = at_timescale(delta, timescale)
     member_mean = response.mean("member")
     parts = {f: member_mean.mean([g for g in FACTORS if g != f]).var(f) for f in FACTORS}
     total_response = member_mean.var(FACTORS)
@@ -55,11 +76,16 @@ def partition(delta):
     result["total"] = delta.var(FACTORS + ["member"])
     result["unattributed"] = result["total"] - sum(result[c] for c in COMPONENTS)
     result["member_count"] = delta.sizes["member"]
+    result.attrs["timescale"] = timescale
     return result
 
 
-def cascade(delta, horizon):
+def cascade(delta, horizon, timescale="decadal"):
+    if timescale not in TIMESCALES:
+        raise ValueError(f"timescale must be one of {TIMESCALES}")
     response, residual = split_response(delta)
+    if timescale == "decadal":
+        residual = decadal_mean(residual)  # variance of a decadal mean, not of a single year
     decade = response.sel(year=slice(horizon, horizon + 9)).mean("year")
     rows = []
     for i, stage in enumerate(FACTORS):

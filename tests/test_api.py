@@ -39,3 +39,15 @@ def test_query_value_cannot_change_sql(client):
     response=client.get('/quantiles',params=dict(node='demo-catchment',metric='annual_runoff',ssp="' OR 1=1 --"))
     assert response.status_code==200
     assert response.json()['data']==[]
+
+
+def test_timescale_selects_distinct_products(client):
+    base=dict(node='demo-catchment',metric='annual_runoff',ssp='all')
+    dec=client.get('/variance',params=base).json()['data']
+    ann=client.get('/variance',params={**base,'timescale':'annual'}).json()['data']
+    assert {r['timescale'] for r in dec}=={'decadal'} and len(dec)==102
+    assert {r['timescale'] for r in ann}=={'annual'} and len(ann)==111
+    assert dec[0]['var_internal_fast']<ann[0]['var_internal_fast']
+    cas=lambda ts:client.get('/cascade',params={**base,'horizon':2050,'timescale':ts}).json()['data']
+    assert len(cas('decadal'))==len(cas('annual'))==6
+    assert client.get('/quantiles',params={**base,'timescale':'weekly'}).status_code==422

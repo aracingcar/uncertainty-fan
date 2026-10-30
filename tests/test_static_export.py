@@ -20,8 +20,8 @@ def test_static_site_export(tmp_path):
     assert (site / '.nojekyll').exists()
     assert len(bundle['cube']['values']) == bundle['metadata']['n_chains'] == 360
     assert len(bundle['cube']['years']) == 111
-    assert len(bundle['tables']['variance']) == 4 * 111
-    assert len(bundle['tables']['cascade']) == 4 * 4 * 6
+    assert len(bundle['tables']['variance']) == 4 * (102 + 111)  # decadal 1995-2096 + annual
+    assert len(bundle['tables']['cascade']) == 4 * 2 * 4 * 6
     assert all(row['build_id'] == bundle['metadata']['build_id'] for row in bundle['tables']['variance'])
     assert (site / 'stats.js').exists()
     rules = {row['rule'] for row in bundle['tables']['exceedance']}
@@ -35,3 +35,4 @@ def test_static_site_export(tmp_path):
     release.write_text(json.dumps(metadata))
     with pytest.raises(ValueError, match='synthetic'):
         export_static(data, tmp_path / 'rejected')
+

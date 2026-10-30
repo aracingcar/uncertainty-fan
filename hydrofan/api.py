@@ -11,7 +11,7 @@ import xarray as xr
 from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from .analytics import RULES, RULE_ALIASES
+from .analytics import RULES, RULE_ALIASES, TIMESCALES
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -36,6 +36,10 @@ def create_app(data_dir=None):
     def check(node, metric):
         if node != metadata["node"] or metric != metadata["metric"]:
             raise HTTPException(404, "Unknown node or metric")
+
+    def known(timescale):
+        if timescale not in TIMESCALES: raise HTTPException(422,f"timescale must be one of {TIMESCALES}")
+        return timescale
 
     def rows(table, filters=None):
         filters = filters or {}
@@ -69,19 +73,19 @@ def create_app(data_dir=None):
         return envelope(rows("chains"))
 
     @app.get("/variance")
-    def variance(node: str, metric: str, ssp: str="all"):
+    def variance(node: str, metric: str, ssp: str="all", timescale: str="decadal"):
         check(node,metric)
-        return envelope(rows("variance",dict(ssp=ssp)))
+        return envelope(rows("variance",dict(ssp=ssp,timescale=known(timescale))))
 
     @app.get("/cascade")
-    def cascade(node: str, metric: str, horizon: int=2050, ssp: str="all"):
+    def cascade(node: str, metric: str, horizon: int=2050, ssp: str="all", timescale: str="decadal"):
         check(node,metric)
-        return envelope(rows("cascade",dict(horizon=horizon,ssp=ssp)))
+        return envelope(rows("cascade",dict(horizon=horizon,ssp=ssp,timescale=known(timescale))))
 
     @app.get("/quantiles")
-    def quantiles(node: str, metric: str, ssp: str="all", slice: str="all"):
+    def quantiles(node: str, metric: str, ssp: str="all", slice: str="all", timescale: str="decadal"):
         check(node,metric)
-        return envelope(rows("quantiles",dict(ssp=ssp,slice=slice)))
+        return envelope(rows("quantiles",dict(ssp=ssp,slice=slice,timescale=known(timescale))))
 
     @app.get("/exceedance")
     def exceedance(node: str, metric: str, threshold_id: str="runoff-minus20", rule: str="annual"):

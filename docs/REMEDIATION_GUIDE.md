@@ -96,6 +96,13 @@ Record each answer in `docs/decisions.md` (one line each) so later reviewers can
 - White noise: decadal IV ≈ `σ²/10`.
 - Annual and decadal `internal_fast` are not equal on the demo cube (guards against silently reusing the annual value).
 
+**Status: done.** Deviations from the plan above, for the record:
+
+- Decadal series use the centred 10-year **running** mean (label year `y` = mean of `y−5…y+4`, so the 2050s window is labelled 2055) for the response, residual and delta alike, rather than non-overlapping blocks. It gives the same expectation and one definition for IV, quantiles and totals. Decadal years run 1995–2096.
+- Breach rules stay annual; the page says so.
+- A degree-4 polynomial fit to ~11 independent decades absorbs a large share of decadal variance, so decadal `internal_fast` is biased low (tests assert 50–100% of the analytic value, and that AR(1) vs white-noise ratios match). Carry this into WI-5.
+- Demo effect: IV share for the 2050s is 11% on 10-year means and 54% for single years.
+
 **Accept when** every number on the page says which timescale it is on, and switching the control changes the fan, shares, cascade and headline together.
 
 ---
